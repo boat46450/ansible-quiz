@@ -1,0 +1,119 @@
+---
+- name: Install wordpress
+  hosts: server
+  gather_facts: false
+  remote_user: root
+  vars:
+    ansible_password: redhat
+  tasks:
+    - name: Install package
+      yum:
+        name: "{{item.name}}"
+        state: latest
+      loop:
+        - name: httpd
+        - name: mariadb
+        - name: mariadb-server
+        - name: php
+        - name: php-common
+        - name: php-mysql
+        - name: php-gd
+        - name: php-xml
+        - name: php-mbstring
+        - name: php-mcrypt
+        - name: php-xmlrpc
+        - name: unzip
+        - name: wget
+        - name: python-pip
+    - name: Start service httpd & mariadb
+      service:
+        name: "{{item.name}}"
+        enabled: yes
+        state: started
+      loop:
+        - name: httpd
+        - name: mariadb
+    - name: Firewall enable http
+      firewalld:
+        service: http
+        permanent: yes
+        immediate: yes
+        state: enabled
+    - name: Install pymysql
+      pip:
+        name: PyMySQL
+    - name: Set root password of mysql
+      block:      
+        - mysql_user:
+            name: root
+            password: "abc"
+            host: localhost
+            state: present
+      rescue:
+        - debug:
+            msg: "You already set password"
+    - shell: echo "DELETE FROM mysql.user WHERE User='';" | mysql  -uroot -p"abc"
+    - shell: echo "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');" | mysql  -uroot -p"abc"
+    - shell: echo "DROP DATABASE test;" | mysql  -uroot -p"abc"
+    - shell: echo "DELETE FROM mysql.db WHERE Db='test' OR Db='test\_%';" | mysql  -uroot -p"abc"
+    - shell: echo "FLUSH PRIVILEGES;" | mysql  -uroot -p"abc"
+    - shell: echo "CREATE DATABASE wordpress" | mysql  -uroot -p"abc"
+    - shell: echo "GRANT ALL PRIVILEGES on wordpress.* to 'ansible'@'localhost' identified by 'mypassword';" | mysql  -uroot -p"abc"
+    - shell: echo "FLUSH PRIVILEGES;" | mysql  -uroot -p"abc"      
+    - name: Download wordpress
+      get_url:
+        url: https://wordpress.org/wordpress-5.0.tar.gz
+        dest: /tmp/wordpress-5.0.tar.gz
+    - name: Unarchive wordpress
+      unarchive:
+        src: /tmp/wordpress-5.0.tar.gz
+        dest: /var/www/html/
+        remote_src: yes
+    - name: Change owner wordpress directory
+      file:
+        path: /var/www/html/wordpress
+        state: directory
+        recurse: yes
+        owner: apache
+        group: apache
+    - name: Change permission wordpress directory
+      file:
+        path: /var/www/html/wordpress
+        state: directory
+        mode: '0755'
+    - name: Create directory uploads in wp-content
+      file:
+        path: /var/www/html/wordpress/wp-content/uploads
+        state: directory
+        recurse: yes
+        owner: apache
+        group: apache
+    - name: Copy wp-config-sample to wp-config
+      copy:
+        src: /var/www/html/wordpress/wp-config-sample.php
+        dest: /var/www/html/wordpress/wp-config.php
+        remote_src: yes
+    - name: Remove wp-config-sample
+      file:
+        path: /var/www/html/wordpress/wp-config-sample.php
+        state: absent
+    - name: Edit db name
+      lineinfile:
+        path: /var/www/html/wordpress/wp-config.php
+        regexp: 'DB_NAME'
+        line: "define('DB_NAME', 'wordpress');"
+    - name: Edit db user
+      lineinfile:
+        path: /var/www/html/wordpress/wp-config.php
+        regexp: 'DB_USER'
+        line: "define('DB_USER', 'ansible');"
+    - name: Edit db password
+      lineinfile:
+        path: /var/www/html/wordpress/wp-config.php
+        regexp: 'DB_PASSWORD'
+        line: "define('DB_PASSWORD', 'mypassword');"
+    - name: Edit db host
+      lineinfile:
+        path: /var/www/html/wordpress/wp-config.php
+        regexp: 'DB_HOST'
+        line: "define('DB_HOST', 'localhost');"
